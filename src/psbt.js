@@ -1,4 +1,4 @@
-import { hex } from '@scure/base'
+import { base64, hex } from '@scure/base'
 import * as btc from '@scure/btc-signer'
 import * as secp256k1 from '@noble/secp256k1'
 import axios from 'axios'
@@ -7,12 +7,11 @@ import axios from 'axios'
 
 const SERVER_URL = 'https://ordiswap-api.proskillowner.com'
 
-const NETWORK = btc.NETWORK
+const NETWORK = btc.TEST_NETWORK
+const MIN_RELAY_FEE = 500
 
 const DUMMY_PRIVATEKEY = '0000000000000000000000000000000000000000000000000000000000000001'
 const dummyPublicKey = secp256k1.getPublicKey(DUMMY_PRIVATEKEY, true)
-
-const minChangeAmount = 1000
 
 export const ADDRESS_TYPE_P2PKH = 1
 export const ADDRESS_TYPE_P2SH_P2WPKH = 2
@@ -111,6 +110,7 @@ export const generatePsbt = async (
             )
 
             payment.amount += ordinalsUtxo.amount
+            totalUtxoValue += ordinalsUtxo.amount
 
             tx.addInput(ordinalsInput)
 
@@ -166,6 +166,7 @@ export const generatePsbt = async (
             feeTx.finalize()
 
             let feeAmount = feeTx.vsize * feeRate
+            feeAmount = feeAmount < MIN_RELAY_FEE ? MIN_RELAY_FEE : feeAmount
 
             totalUtxoValue += paymentUtxo.amount
             if (totalUtxoValue >= payment.amount + feeAmount) {
@@ -176,15 +177,18 @@ export const generatePsbt = async (
                 feeTx.finalize()
 
                 feeAmount = feeTx.vsize * feeRate
+                feeAmount = feeAmount < MIN_RELAY_FEE ? MIN_RELAY_FEE : feeAmount
 
-                if (totalUtxoValue >= payment.amount + minChangeAmount + feeAmount) {
+                if (totalUtxoValue >= payment.amount + 100 * feeRate + feeAmount) {
                     tx.addOutputAddress(payment.address, BigInt(totalUtxoValue - payment.amount - feeAmount), NETWORK)
                 }
 
                 const psbt = tx.toPSBT()
+                const psbtBase64 = base64.encode(psbt)
 
                 return {
                     psbt,
+                    psbtBase64,
                     paymentUtxoCount,
                 }
             }

@@ -2,45 +2,44 @@ import { useState } from "react";
 import './App.css';
 import * as psbt from "./psbt";
 
-// const RECIPIENT_ADDRESS = 'tb1q8gqpqkavur3kp93kuvea4mv9tcj0cahltalf9r'
-// const INSCRIPTION_ID = 'e3452dbdfd1cee654571fba827d455611b33623b29d9f9d94b7ebb4fccaf52dfi0'
+// const NETWORK = 'testnet'
+// const RECIPIENT_ADDRESS = 'tb1psaturrktaacujcky4ljfn88nanxxyl0vmucczah5lzftp72navsscs6e8n'
+// const INSCRIPTION_ID = '3b8ac1bc4dc80bdede05624e7cc2cf4bad9a20aa3f82ccc5401dbe8fbc02e263i0'
 // const FEE_RATE = 1
 
-const RECIPIENT_ADDRESS = 'bc1qeaacuf2d7anrdrcez02mn0lh2zfhscy9c3f0na'
-const INSCRIPTION_ID = '568efc6ba7908f90908fcf2af243996f361dad3a11ae2d1401c9d845efd81720i0'
+const NETWORK = 'livenet'
+const RECIPIENT_ADDRESS = 'bc1pquarvx4j8tn8594j204zphpzwdfndealmqnxztd3xp4qx53k3eesmkxv0l'
+const INSCRIPTION_ID = 'e3452dbdfd1cee654571fba827d455611b33623b29d9f9d94b7ebb4fccaf52dfi0'
 const FEE_RATE = 30
 
 function App() {
-	const [walletConnected, setWalletConnection] = useState(false)
-	const [paymentAccount, setPaymentAccount] = useState(null)
-	const [ordinalsAccount, setOrdinalsAccount] = useState(null)
-
-	const setAccounts = (accounts) => {
-		if (accounts) {
-			setWalletConnection(true)
-			for (const account of accounts) {
-				if (account.purpose === 'payment') {
-					setPaymentAccount(account)
-				} else if (account.purpose === 'ordinals') {
-					setOrdinalsAccount(account)
-				}
-			}
-		} else {
-			setWalletConnection(false)
-			setPaymentAccount(null)
-			setOrdinalsAccount(null)
-		}
-	}
+	const [address, setAddress] = useState(null)
+	const [publicKey, setPublicKey] = useState(null)
 
 	const init = async () => {
-		if (window.phantom && window.phantom.bitcoin && window.phantom.bitcoin.isPhantom) {
-			window.phantom.bitcoin.on('accountsChanged', async (accounts) => {
-				if (accounts.length > 0) {
-					setAccounts(accounts)
+		if (window.unisat) {
+			window.unisat.on('accountsChanged', async (accounts) => {
+				const currentNetwork = await window.unisat.getNetwork(NETWORK)
+
+				if (currentNetwork === NETWORK) {
+					setAddress(accounts[0])
+					setPublicKey(await window.unisat.getPublicKey())
 				} else {
-					setAccounts(null)
+					setAddress(null)
+					setPublicKey(null)
 				}
-			})
+			});
+
+			const currentNetwork = await window.unisat.getNetwork(NETWORK)
+
+			if (currentNetwork === NETWORK) {
+				const accounts = await window.unisat.getAccounts()
+
+				if (accounts.length) {
+					setAddress(accounts[0])
+					setPublicKey(await window.unisat.getPublicKey())
+				}
+			}
 		}
 	}
 
@@ -48,18 +47,17 @@ function App() {
 
 	const connectWallet = async () => {
 		try {
-			if (!window.phantom) {
-				alert('Phantom wallet not installed');
+			if (!window.unisat) {
+				alert('UniSat wallet not installed!');
 				return
 			}
 
-			if (!window.phantom.bitcoin || !window.phantom.bitcoin.isPhantom) {
-				alert('Bitcoin account not available');
-				return
-			}
+			await window.unisat.switchNetwork(NETWORK)
 
-			const accounts = await window.phantom.bitcoin.requestAccounts()
-			setAccounts(accounts)
+			const accounts = await window.unisat.requestAccounts()
+
+			setAddress(accounts[0])
+			setPublicKey(await window.unisat.getPublicKey())
 		} catch (error) {
 			console.error(JSON.stringify(error))
 			alert(JSON.stringify(error))
@@ -80,26 +78,8 @@ function App() {
 				return
 			}
 
-			const inputsToSign = []
-
-			if (ordinals) {
-				inputsToSign.push({
-					address: ordinals.address,
-					signingIndexes: [0],
-					sigHash: 0,
-				})
-			}
-
-			for (let i = 0; i < unsignedPsbt.paymentUtxoCount; i++) {
-				inputsToSign.push({
-					address: payment.address,
-					signingIndexes: [i + ordinals ? 1 : 0],
-					sigHash: 0,
-				})
-			}
-
-			const signedPsbt = await window.phantom.bitcoin.signPSBT(unsignedPsbt.psbt, { inputsToSign })
-			const txid = await psbt.pushPsbt(signedPsbt)
+			const signedPsbtBase64 = await window.unisat.signPsbt(unsignedPsbt.psbtBase64)
+			const txid = await window.unisat.pushPsbt(signedPsbtBase64)
 
 			return txid
 		} catch (error) {
@@ -111,8 +91,8 @@ function App() {
 		try {
 			const payment = {
 				addressType: psbt.ADDRESS_TYPE_P2WPKH,
-				address: paymentAccount.address,
-				publicKey: paymentAccount.publicKey,
+				address,
+				publicKey,
 				amount: 1000,
 			}
 
@@ -133,15 +113,15 @@ function App() {
 		try {
 			const payment = {
 				addressType: psbt.ADDRESS_TYPE_P2WPKH,
-				address: paymentAccount.address,
-				publicKey: paymentAccount.publicKey,
+				address,
+				publicKey,
 				amount: 0,
 			}
 
 			const ordinals = {
-				addressType: psbt.ADDRESS_TYPE_P2TR,
-				address: ordinalsAccount.address,
-				publicKey: ordinalsAccount.publicKey,
+				addressType: psbt.ADDRESS_TYPE_P2WPKH,
+				address,
+				publicKey,
 				inscriptionId: INSCRIPTION_ID,
 			}
 
@@ -161,31 +141,22 @@ function App() {
 	const signMessage = async () => {
 		try {
 			const message = 'Hello World'
-			const messageBytes = new TextEncoder().encode(message)
-			const signature = await window.phantom.bitcoin.signMessage(paymentAccount.address, messageBytes)
+
+			const signature = await window.unisat.signMessage(message)
 			console.log(signature)
 		} catch (error) {
-			console.log(JSON.stringify(error));
+			console.error(JSON.stringify(error))
 			alert(JSON.stringify(error))
 		}
 	}
 
 	return (
 		<>
-			{(!walletConnected) && (<button onClick={connectWallet}>Connect Wallet</button>)}
-			{(walletConnected) && (
+			{(!address) && (<button onClick={connectWallet}>Connect Wallet</button>)}
+			{(address) && (
 				<>
-					<>Payment</><br />
-					<>Address: {paymentAccount.address}</><br />
-					<>Public Key: {paymentAccount.publicKey}</><br />
-					<>Address Type: {paymentAccount.addressType}</><br />
-					<>Purpose: {paymentAccount.purpose}</><br />
-					<br />
-					<>Ordinals</><br />
-					<>Address: {ordinalsAccount.address}</><br />
-					<>Public Key: {ordinalsAccount.publicKey}</><br />
-					<>Address Type: {ordinalsAccount.addressType}</><br />
-					<>Purpose: {ordinalsAccount.purpose}</><br />
+					<>Address: {address}</><br />
+					<>Public Key: {publicKey}</><br />
 					<br />
 					<button onClick={sendPayment} >Send Payment</button>
 					<button onClick={sendOrdinals} >Send Ordinals</button>
