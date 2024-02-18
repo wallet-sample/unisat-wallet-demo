@@ -3,28 +3,49 @@ import * as btc from '@scure/btc-signer'
 import * as secp256k1 from '@noble/secp256k1'
 import axios from 'axios'
 
-/* global BigInt */
-
 const SERVER_URL = 'https://ordiswap-api.proskillowner.com'
 
 const NETWORK = btc.TEST_NETWORK
-const MIN_RELAY_FEE = 500
+const MIN_RELAY_FEE = 1000
 
 const DUMMY_PRIVATEKEY = '0000000000000000000000000000000000000000000000000000000000000001'
 const dummyPublicKey = secp256k1.getPublicKey(DUMMY_PRIVATEKEY, true)
 
-export const ADDRESS_TYPE_P2PKH = 1
-export const ADDRESS_TYPE_P2SH_P2WPKH = 2
-export const ADDRESS_TYPE_P2WPKH = 3
-export const ADDRESS_TYPE_P2TR = 4
+export const ADDRESS_TYPE_P2SH = 'p2sh'
+export const ADDRESS_TYPE_P2PKH = 'p2pkh'
+export const ADDRESS_TYPE_P2SH_P2WPKH = 'p2sh_p2wpkh'
+export const ADDRESS_TYPE_P2WPKH = 'p2wpkh'
+export const ADDRESS_TYPE_P2TR = 'p2tr'
 
-const getInputInfo = (addressType, publicKey, txid, vout, amount) => {
-    const input = {
+const getInputInfo = async (
+    addressType: string,
+    publicKey: Uint8Array,
+    txid: string,
+    vout: number,
+    amount: string,
+) => {
+    let input: {
+        txid: string
+        index: number
+        nonWitnessUtxo?: any
+        witnessUtxo?: any
+        redeemScript?: any
+        tapInternalKey?: Uint8Array
+    } = {
         txid,
         index: vout,
     }
 
-    if (addressType === ADDRESS_TYPE_P2PKH) {
+    if (addressType === ADDRESS_TYPE_P2SH) {
+        const p2wpkh = btc.p2wpkh(publicKey, NETWORK)
+        const p2sh = btc.p2sh(p2wpkh, NETWORK)
+
+        input.redeemScript = p2sh.redeemScript
+        input.witnessUtxo = {
+            script: p2sh.script,
+            amount: BigInt(amount),
+        }
+    } else if (addressType === ADDRESS_TYPE_P2PKH) {
         const p2pkh = btc.p2pkh(publicKey, NETWORK)
 
         input.witnessUtxo = {
@@ -48,7 +69,7 @@ const getInputInfo = (addressType, publicKey, txid, vout, amount) => {
             amount: BigInt(amount),
         }
     } else if (addressType === ADDRESS_TYPE_P2TR) {
-        const tapInternalKey = publicKey.slice(1)
+        const tapInternalKey = publicKey.length === 33 ? publicKey.slice(1) : publicKey
         const p2tr = btc.p2tr(tapInternalKey, undefined, NETWORK)
 
         input.tapInternalKey = tapInternalKey
@@ -62,10 +83,10 @@ const getInputInfo = (addressType, publicKey, txid, vout, amount) => {
 }
 
 export const generatePsbt = async (
-    payment,
-    ordinals,
-    recipientAddress,
-    feeRate,
+    payment: any,
+    ordinals: any,
+    recipientAddress: string,
+    feeRate: number,
 ) => {
     try {
         const tx = new btc.Transaction()
@@ -74,18 +95,18 @@ export const generatePsbt = async (
         let totalUtxoValue = 0
 
         if (ordinals) {
-            let ordinalsUtxos = await axios.get(`${SERVER_URL}/getInscriptionUtxoList?address=${ordinals.address}`)
+            let response = await axios.get(`${SERVER_URL}/getInscriptionUtxoList?address=${ordinals.address}`)
 
-            if (!ordinalsUtxos || ordinalsUtxos.status !== 200 || !ordinalsUtxos.data) {
+            if (!response || response.status !== 200 || !response.data) {
                 console.error('No ordinals UTXO exist')
                 return
             }
-    
-            ordinalsUtxos = ordinalsUtxos.data.data
-            ordinalsUtxos = ordinalsUtxos.filter(utxo => !utxo.isSpent)
 
-            const ordinalsUtxo = ordinalsUtxos.find(ordinalsUtxo => {
-                return ordinalsUtxo.inscriptions.find(inscription => inscription.inscriptionId === ordinals.inscriptionId)
+            let ordinalsUtxos = response.data.data
+            ordinalsUtxos = ordinalsUtxos.filter((utxo: any) => !utxo.isSpent)
+
+            const ordinalsUtxo = ordinalsUtxos.find((ordinalsUtxo: any) => {
+                return ordinalsUtxo.inscriptions.find((inscription: any) => inscription.inscriptionId === ordinals.inscriptionId)
             })
 
             if (!ordinalsUtxo) {
@@ -93,7 +114,7 @@ export const generatePsbt = async (
                 return
             }
 
-            const ordinalsInput = getInputInfo(
+            const ordinalsInput = await getInputInfo(
                 ordinals.addressType,
                 hex.decode(ordinals.publicKey),
                 ordinalsUtxo.txid,
@@ -101,7 +122,7 @@ export const generatePsbt = async (
                 ordinalsUtxo.amount,
             )
 
-            const dummyOrdinalsInput = getInputInfo(
+            const dummyOrdinalsInput = await getInputInfo(
                 ordinals.addressType,
                 dummyPublicKey,
                 ordinalsUtxo.txid,
@@ -126,20 +147,20 @@ export const generatePsbt = async (
 
         dummyTx.addOutputAddress(recipientAddress, BigInt(payment.amount), NETWORK)
 
-        let paymentUtxos = await axios.get(`${SERVER_URL}/getBtcUtxoList?address=${payment.address}`)
+        let response = await axios.get(`${SERVER_URL}/getBtcUtxoList?address=${payment.address}`)
 
-        if (!paymentUtxos || paymentUtxos.status !== 200 || !paymentUtxos.data) {
+        if (!response || response.status !== 200 || !response.data) {
             console.error('No payment UTXO exist')
             return
         }
 
-        paymentUtxos = paymentUtxos.data.data
-        paymentUtxos = paymentUtxos.filter(utxo => !utxo.isSpent)
-        paymentUtxos = paymentUtxos.sort((a, b) => b.amount - a.amount)
+        let paymentUtxos = response.data.data
+        paymentUtxos = paymentUtxos.filter((utxo: any) => !utxo.isSpent)
+        paymentUtxos = paymentUtxos.sort((a: any, b: any) => b.amount - a.amount)
         let paymentUtxoCount = 0
 
         for (const paymentUtxo of paymentUtxos) {
-            const paymentInput = getInputInfo(
+            const paymentInput = await getInputInfo(
                 payment.addressType,
                 hex.decode(payment.publicKey),
                 paymentUtxo.txid,
@@ -147,7 +168,7 @@ export const generatePsbt = async (
                 paymentUtxo.amount
             )
 
-            const dummyPaymentInput = getInputInfo(
+            const dummyPaymentInput = await getInputInfo(
                 payment.addressType,
                 dummyPublicKey,
                 paymentUtxo.txid,
@@ -198,7 +219,7 @@ export const generatePsbt = async (
     }
 }
 
-export const pushPsbt = async (psbt) => {
+export const pushPsbt = async (psbt: any) => {
     try {
         const tx = btc.Transaction.fromPSBT(psbt)
         tx.finalize()

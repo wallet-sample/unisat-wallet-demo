@@ -2,15 +2,15 @@ import { useState } from "react";
 import './App.css';
 import * as psbt from "./psbt";
 
-// const NETWORK = 'testnet'
-// const RECIPIENT_ADDRESS = 'tb1psaturrktaacujcky4ljfn88nanxxyl0vmucczah5lzftp72navsscs6e8n'
-// const INSCRIPTION_ID = '3b8ac1bc4dc80bdede05624e7cc2cf4bad9a20aa3f82ccc5401dbe8fbc02e263i0'
-// const FEE_RATE = 1
+const NETWORK = 'testnet'
+const RECIPIENT_ADDRESS = 'tb1psaturrktaacujcky4ljfn88nanxxyl0vmucczah5lzftp72navsscs6e8n'
+const INSCRIPTION_ID = '3b8ac1bc4dc80bdede05624e7cc2cf4bad9a20aa3f82ccc5401dbe8fbc02e263i0'
+const FEE_RATE = 1
 
-const NETWORK = 'livenet'
-const RECIPIENT_ADDRESS = 'bc1pquarvx4j8tn8594j204zphpzwdfndealmqnxztd3xp4qx53k3eesmkxv0l'
-const INSCRIPTION_ID = 'e3452dbdfd1cee654571fba827d455611b33623b29d9f9d94b7ebb4fccaf52dfi0'
-const FEE_RATE = 30
+// const NETWORK = 'livenet'
+// const RECIPIENT_ADDRESS = 'bc1pquarvx4j8tn8594j204zphpzwdfndealmqnxztd3xp4qx53k3eesmkxv0l'
+// const INSCRIPTION_ID = 'e3452dbdfd1cee654571fba827d455611b33623b29d9f9d94b7ebb4fccaf52dfi0'
+// const FEE_RATE = 30
 
 function App() {
 	const [address, setAddress] = useState(null)
